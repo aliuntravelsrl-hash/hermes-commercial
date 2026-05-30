@@ -13,6 +13,7 @@
 | 04 | SEGUIMIENTO | seguimiento, confirmar, recordar, volver, pendiente | qa-followup | ministral-8b |
 | 05 | SOPORTE | cancelar, cambiar, modificar, voucher, problema, queja | vendedor | gemini-2.0-flash-lite |
 | 06 | ESCALAMIENTO | mayorista, B2B, grupo grande, descuento especial, director | orquestador | gemini-2.0-flash |
+| 07 | QA | auditoría, calidad, KPI, cumplimiento framework, mejora | qa-auditor | gemini-2.0-flash-lite |
 
 ---
 

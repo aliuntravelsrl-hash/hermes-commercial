@@ -50,6 +50,20 @@ Se usan cuando el cliente avanza hacia cierre o gestión documental.
 
 ---
 
+## Capa 3 — Tools de Memoria Postgres (motor de contexto)
+
+Se usan para que el orquestador y sub-agentes tengan contexto de conversaciones previas y perfil del cliente.
+
+| # | Tool | Propósito | Tablas Supabase | Estado |
+|---|------|-----------|----------------|--------|
+| 1 | `get_conversation_context` | Devuelve perfil + últimos mensajes + lead activo para un teléfono | `client_profiles` + `conversation_messages` + `crm_leads` | 🔧 Nueva |
+| 2 | `save_message` | Guarda cada mensaje in/out de la conversación | `conversation_messages` (INSERT ONLY) | 🔧 Nueva |
+| 3 | `upsert_client_profile` | Crea o actualiza perfil del cliente | `client_profiles` | 🔧 Nueva |
+
+**Ver MEMORY.md** para SQL DDL completo y diseño de las RPCs.
+
+---
+
 ## Columnas auditadas Supabase (production real)
 
 ```

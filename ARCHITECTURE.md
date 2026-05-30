@@ -27,6 +27,7 @@
 | **cotizador** | `qwen/qwen3.5-flash-02-23` | 1M | $0.07 | $0.26 | RPCs Supabase + cálculos de precio |
 | **qa-followup** | `mistralai/ministral-8b-2512` | 262K | $0.15 | $0.15 | Seguimientos T+2h/24h/48h |
 | **finanzas** | `qwen/qwen3.6-flash` | 1M | $0.19 | $1.12 | Validación de pagos + depósitos |
+| **qa-auditor** | `google/gemini-2.0-flash-lite-001` | 1M | $0.07 | $0.30 | Auditoría de calidad + KPIs + mejora de prompts |
 
 ### Costo sub-agentes mensual estimado
 - vendedor: ~$3-5/mes
