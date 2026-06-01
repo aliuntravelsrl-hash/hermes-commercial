@@ -47,7 +47,7 @@ exchange_rates:  currency_pair, rate_sell, rate_buy, is_active
   "price_per_night_usd": 108.90,
   "total_usd": 435.60,
   "total_dop": 27225.00,
-  "tasa": 62.50,
+  "tasa": 61.50,
   "rooms_available": 5,
   "offer": null
 }
@@ -56,7 +56,7 @@ exchange_rates:  currency_pair, rate_sell, rate_buy, is_active
 ## Errores conocidos
 
 - Si RPC devuelve `PGRST202` → nombre de parámetro incorrecto, auditar con `information_schema`
-- Si `rate_sell` es NULL → usar fallback 62.50
+- Si `rate_sell` es NULL → usar fallback 61.50
 - `p_limit` en vez de `limit` (reserved word PostgreSQL)
 
 ---
