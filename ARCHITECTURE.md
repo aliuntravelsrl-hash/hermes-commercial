@@ -67,7 +67,7 @@ Cliente WhatsApp (+1 809-510-9396)
 | MCP Server | `https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` | 18 tools, 5/5 RPCs E2E OK |
 | n8n | `https://n8n-n8n.xaruuo.easypanel.host` | Orquestación workflows |
 | Chatwoot | `https://n8n-chatwoot.xaruuo.easypanel.host` | Inbox humano + escalamiento |
-| Supabase (MCP) | `qxlmnsnxwlmfhspjehbh.supabase.co` | Base de datos producción |
+| Supabase (MCP) | `oyihiyivdhfxpyiwnmqk.supabase.co` | Base de datos producción |
 | EasyPanel | `72.61.12.170:3000` | Deploy servicios |
 
 ---
