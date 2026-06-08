@@ -27,8 +27,9 @@ Se usan cuando el cliente está en fase de exploración, descubrimiento, compara
 | 5 | `validar_ocupacion_habitacion` | Verifica si la ocupación por habitación es válida | `rooms` (capacity_adults / capacity_children) | ✅ Activa |
 | 6 | `buscar_ofertas_marketing` | Revisa promociones activas o flash sales | `marketing_offers` | ✅ Activa |
 
-**Endpoint MCP:** `https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp`
-**Parámetros RPC:** Todos usan `p_` prefix (auditoría real Supabase). `p_limit` para reserved word.
+**Endpoint MCP:** `https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` (servidor `atlas-sales-tools v1.3.1`, 18 tools verificadas en vivo 08 JUN 2026)
+
+> ⚠️ **Prefijo `p_`:** el `p_` aplica SOLO a los argumentos de la función RPC interna de Supabase. La **interfaz MCP que el agente invoca NO usa `p_`** (ej. `slug`, `hotel_id`, `check_in`). Llamar tools MCP con `p_hotel_slug` falla con `-32602`. Firmas reales verificadas en **`TOOLS_SCHEMA.md`**.
 
 ---
 
@@ -38,15 +39,17 @@ Se usan cuando el cliente avanza hacia cierre o gestión documental.
 
 | # | Tool | Propósito | Tablas Supabase | Estado |
 |---|------|-----------|----------------|--------|
-| 1 | `generar_cotizacion_pdf` | Genera y entrega PDF formal | Lee `hotels_master` + rates → WF-GOTENBERG | 🔧 Pendiente WF |
-| 2 | `validar_comprobante` | Revisa evidencia de pago enviada por el cliente | Lee `atlas_payments` → WF-DEPOSITO | 🔧 Pendiente WF |
-| 3 | `registrar_deposito` | Registra abono con aprobación humana | Escribe `bookings` + `atlas_payments` | 🔧 Pendiente WF |
+| 1 | `generar_cotizacion_pdf` | Genera y entrega PDF formal | Lee `hotels_master` + rates → WF-GOTENBERG | ✅ Activa (MCP v1.3.1) |
+| 2 | `validar_comprobante` | Revisa evidencia de pago enviada por el cliente | Lee `atlas_payments` → WF-DEPOSITO | ✅ Activa (MCP v1.3.1) |
+| 3 | `registrar_deposito` | Registra abono con aprobación humana | Escribe `bookings` + `atlas_payments` | ✅ Activa (MCP v1.3.1) |
 | 4 | `obtener_galeria_hotel` | Entrega fotos del hotel para soporte comercial | Lee `hotels_master` (gallery) | ✅ Activa |
 | 5 | `registrar_lead` | Crea un nuevo lead de ventas en el CRM | Escribe `crm_leads` | ✅ Activa |
 | 6 | `avanzar_pipeline` | Cambia el stage de un lead en el embudo | Escribe `crm_leads` + `crm_activities` | ✅ Activa |
 | 7 | `registrar_actividad` | Agrega notas o logs al historial del lead | Escribe `crm_activities` | ✅ Activa |
 | 8 | `crear_deal` | Convierte cotización en negociación formal | Escribe `crm_deals` | ✅ Activa |
 | 9 | `consultar_pipeline` | Obtiene agregaciones del embudo | Lee `crm_leads` + `crm_deals` | ✅ Activa |
+| 10 | `analisis_financiero` | Análisis financiero / márgenes para escalamiento | Lee `rates` + cálculos | ✅ Activa (MCP v1.3.1) |
+| 11 | `consultar_reserva` | Busca una reserva por término (ref, nombre, email) | Lee `bookings` | ✅ Activa (MCP v1.3.1) |
 
 ---
 

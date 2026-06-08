@@ -59,7 +59,7 @@ WhatsApp (+1 809-510-9396) → Meta Cloud API → Webhook → n8n
 
 ## MCP Server
 
-`https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` — 18 tools, 5/5 RPCs E2E OK
+`https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` — `atlas-sales-tools v1.3.1`, 18 tools verificadas en vivo (08 JUN 2026). Firmas reales (sin prefijo `p_`) en `TOOLS_SCHEMA.md`. Pendiente: 3 RPCs de memoria (ver `MEMORY.md`).
 
 ## Fuente de verdad
 

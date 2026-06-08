@@ -57,6 +57,15 @@ export const DEPARTMENTS = {
     stageTriggers: [],
     alwaysRoute: true,
   },
+  7: {
+    id: '07_qa',
+    name: 'QA',
+    description: 'Auditoría de calidad, KPIs, cumplimiento del framework, mejora de prompts',
+    model: 'google/gemini-2.0-flash-lite-001',
+    keywords: ['auditoría', 'auditoria', 'calidad', 'kpi', 'cumplimiento', 'framework', 'mejora'],
+    stageTriggers: [],
+    isAudit: true,
+  },
 };
 
 /**
@@ -101,6 +110,7 @@ export function suggestTools(departmentId) {
     '04_seguimiento': ['registrar_actividad', 'avanzar_pipeline', 'consultar_pipeline'],
     '05_soporte': ['consultar_disponibilidad', 'registrar_actividad'],
     '06_sales_escalation': ['calcular_cotizacion', 'calcular_precio_paquete', 'registrar_lead'],
+    '07_qa': ['consultar_pipeline', 'registrar_actividad'],
   };
   return toolMap[departmentId] || [];
 }
