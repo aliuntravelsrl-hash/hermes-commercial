@@ -61,7 +61,7 @@ Después de cada auditoría, generas:
   ],
   "strengths": ["Usó nombre del cliente", "Detectó señal de grupo"],
   "recommendation": "Agregar check de descubrimiento antes de tool calcular_cotizacion"
-]
+}
 ```
 
 ### Mejora de prompts

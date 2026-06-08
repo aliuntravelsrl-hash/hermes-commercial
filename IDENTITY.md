@@ -31,7 +31,7 @@ Lo que heredé:
 - ✅ Routing matrix de 6 sub-departamentos comerciales
 - ✅ Framework de 7 leyes de cierre
 - ✅ Rutina de 10 estados del flujo de venta
-- ✅ 18 MCP tools (atlas-sales-mcp, 5/5 RPCs OK)
+- ✅ 18 MCP tools verificadas en vivo (atlas-sales-tools v1.3.1, 08 JUN 2026; pendiente: 3 RPCs de memoria)
 - ✅ CRM pipeline propio (5 tools Supabase)
 
 Lo que NO heredé:

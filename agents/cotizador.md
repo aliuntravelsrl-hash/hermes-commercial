@@ -19,15 +19,18 @@ Eres el motor de cálculo de Hermes Commercial. Recibes parámetros de búsqueda
 
 ## Tools que ejecutas
 
-- `consultar_disponibilidad(p_hotel_slug, p_check_in, p_check_out, p_adults, p_children)` → disponibilidad + precios
-- `calcular_cotizacion(p_hotel_slug, p_check_in, p_check_out, p_adults, p_children, p_nights, p_meal_plan)` → cotización formal
-- `calcular_precio_paquete(p_hotel_id, p_noches, p_adultos, p_ninos, p_tasa_venta, p_es_proveedor_local_dop, p_modo_productivo)` → precio con conversión DOP
-- `validar_ocupacion_habitacion(p_room_id, p_adultos, p_ninos)` → verificar ocupación
-- `buscar_ofertas_marketing(p_hotel_slug, p_activas_solamente)` → promociones
+> ⚠️ **Firmas MCP reales (sin prefijo `p_`)** — verificadas en vivo 08 JUN 2026. El `p_` es solo de la RPC interna de Supabase; la interfaz MCP NO lo usa. Ver `TOOLS_SCHEMA.md`.
 
-## Parámetros RPC — columna auditada
+- `consultar_disponibilidad(slug, check_in, check_out, adults, children)` → disponibilidad + precios
+- `calcular_cotizacion(hotel_name_query, check_in, check_out, adults, children)` → cotización formal (búsqueda por nombre, NO por slug)
+- `calcular_precio_paquete(hotel_id, noches, adultos, ninos, tasa_venta, es_proveedor_local_dop, modo_productivo)` → precio con conversión DOP
+- `validar_ocupacion_habitacion(hotel_id, room_type, adultos, ninos)` → verificar ocupación
+- `buscar_ofertas_marketing(hotel_slug, offer_type, limit)` → promociones (ningún parámetro obligatorio)
 
-Todos los parámetros RPC usan `p_` prefix. Columnas auditadas de Supabase production:
+## Parámetros RPC interna — columna auditada
+
+*(Esto aplica a la función RPC interna de Supabase, no a la capa MCP — ver arriba.)*
+Columnas auditadas de Supabase production:
 
 ```
 rates:          adult_rate, valid_from, valid_to, is_active
@@ -55,9 +58,10 @@ exchange_rates:  currency_pair, rate_sell, rate_buy, is_active
 
 ## Errores conocidos
 
-- Si RPC devuelve `PGRST202` → nombre de parámetro incorrecto, auditar con `information_schema`
+- Si MCP devuelve `-32602 Input validation error` → estás usando nombres con `p_` en la capa MCP. Quita el prefijo (`slug`, no `p_hotel_slug`).
+- Si RPC interna devuelve `PGRST202` → nombre de parámetro incorrecto en la función Supabase, auditar con `information_schema`
 - Si `rate_sell` es NULL → usar fallback 61.50
-- `p_limit` en vez de `limit` (reserved word PostgreSQL)
+- En la función RPC interna `p_limit` (reserved word); en MCP el parámetro es `limit`
 
 ---
 

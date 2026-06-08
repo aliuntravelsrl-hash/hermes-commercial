@@ -32,8 +32,7 @@
 
 ### Lo que se descartó
 - Todas las refs a Kommo CRM (degradado)
-- Supabase project `oyihiyivdhfxpyiwnmqk` (es el web, no el MCP backend)
-- Workflow n8n `0ps4wRmBFXcAy0u2` (legacy, será reemplazado)
+- Workflow n8n `0ps4wRmBFXcAy0u2` (legacy, reemplazado por agente OpenClaw/Hermes vía MCP directo)
 - "OpenClaw" como nombre del agente (ahora Hermes Commercial)
 - Dependencia de RateHawk/TBO/eJuniper (las RPCs Supabase las reemplazan)
 
@@ -42,8 +41,8 @@
 ## Lecciones aprendidas de la migración
 
 1. **NUNCA asumir columnas de Supabase** — auditar con `information_schema.columns` antes de escribir RPCs
-2. **Todos los parámetros RPC usan `p_` prefix** — consistencia con Supabase
-3. **`limit` es reserved word en PostgreSQL** — usar `p_limit`
+2. **El prefijo `p_` es SOLO para los argumentos de la función RPC interna de Supabase** — la capa MCP que el agente invoca usa nombres SIN `p_` (ej. `slug`, `hotel_id`, `check_in`). Verificado en vivo 08 JUN 2026: llamar tools MCP con `p_hotel_slug` falla con `-32602`. Ver `TOOLS_SCHEMA.md`.
+3. **`limit` es reserved word en PostgreSQL** — usar `p_limit` en la función RPC interna; en la interfaz MCP el parámetro es `limit`
 4. **exchange_rates usa `currency_pair/rate_sell`** — NO `from_currency/to_currency/rate`
 5. **marketing_offers usa `discount_percentage/is_published`** — NO `discount_percent/published`
 6. **rooms usa `capacity_adults/capacity_children/room_type`** — NO `max_adults/max_children`

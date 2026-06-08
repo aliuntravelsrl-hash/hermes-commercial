@@ -173,9 +173,13 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 ```
 
-### `save_message(p_conversation_id, p_lead_id, p_direction, p_sender_type, p_agent_name, p_content, p_content_type, p_metadata)`
+### `save_message(p_conversation_id, p_lead_id, p_direction, p_sender_type, p_content, p_agent_name, p_content_type, p_media_url, p_metadata)`
 
 Guarda cada mensaje de la conversación.
+
+> **Nota de firma (PostgreSQL):** los parámetros con `DEFAULT` deben ir al final.
+> Todos los obligatorios primero (`p_conversation_id`, `p_lead_id`, `p_direction`,
+> `p_sender_type`, `p_content`), luego los opcionales.
 
 ```sql
 CREATE OR REPLACE FUNCTION public.save_message(
@@ -183,8 +187,8 @@ CREATE OR REPLACE FUNCTION public.save_message(
   p_lead_id uuid,
   p_direction text,
   p_sender_type text,
-  p_agent_name text DEFAULT NULL,
   p_content text,
+  p_agent_name text DEFAULT NULL,
   p_content_type text DEFAULT 'text',
   p_media_url text DEFAULT NULL,
   p_metadata jsonb DEFAULT '{}'
