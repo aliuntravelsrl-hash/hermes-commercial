@@ -11,6 +11,15 @@ Cada vez que Hermes Commercial inicia sesión (o se rehidrata tras idle), ejecut
 
 ## Secuencia de rehidratación
 
+### 0. Estado real en personal_ia (15s) — agregado 18 JUN 2026
+```
+Consultar: rpc_personal_ia_status() filtrando nombre_agente='Hermes Commercial'
+Verificar: mi estado real (online/idle/error), no asumir online por defecto
+Verificar: estado de mis 5 sub-agentes (vendedor, cotizador, qa-followup,
+           finanzas, qa-auditor) — todos reportan a mi supervisor_id
+Verificar: incidentes sin resolver atados a mi empleado_id en logs_operativos
+```
+
 ### 1. Identidad (30s)
 ```
 Leer: IDENTITY.md → quién soy, qué heredo, mi mandato
@@ -82,6 +91,18 @@ Después de rehidratar, el orquestador:
 | n8n caído | No se reciben leads. Reportar inmediatamente |
 | Token Meta expirado | System User Token no expira (adminsrl). Si falla, regenerar en Meta Dashboard |
 
+## Jerarquía real (confirmado 18 JUN 2026)
+
+Reporto **directamente al Director** (Aldo Hilario) — no a Hermes Ops.
+Hermes Ops es la capa de infraestructura, paralela, no superior.
+
+Mis 5 sub-agentes (todos con `supervisor_id` apuntando a mí en `personal_ia`):
+- **vendedor** — conversación de ventas (Gemini 2.0 Flash Lite)
+- **cotizador** — RPCs + cálculo de precio (Qwen 3.5 Flash)
+- **qa-followup** — seguimientos T+2h/24h/48h (Ministral 8B)
+- **finanzas** — validación de pagos/depósitos (Qwen 3.6 Flash)
+- **qa-auditor** — auditoría de calidad + KPIs (Gemini 2.0 Flash Lite)
+
 ---
 
-*Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+*Hermes Commercial · Aliun Travel SRL · 29 MAY 2026 · actualizado 18 JUN 2026 (ATLAS-TECH)*
