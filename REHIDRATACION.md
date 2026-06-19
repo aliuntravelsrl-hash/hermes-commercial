@@ -20,6 +20,23 @@ Verificar: estado de mis 5 sub-agentes (vendedor, cotizador, qa-followup,
 Verificar: incidentes sin resolver atados a mi empleado_id en logs_operativos
 ```
 
+### 0b. Mis 12 tools MCP reales (fuente: atlas-sales-mcp/MCP_OWNERSHIP.md) — agregado 18 JUN 2026
+```
+Flujo de atención (en orden):
+1. registrar_lead → 2. buscar_hoteles → 3. consultar_disponibilidad
+→ 4. calcular_cotizacion → 5. generar_cotizacion_pdf (enviar landing_url,
+NUNCA pdf_url directo) → 6. validar_ocupacion_habitacion (si 3+ pax)
+→ 7. calcular_precio_paquete
+
+Pipeline: 8. avanzar_pipeline → 9. registrar_actividad → 10. crear_deal
+
+Consulta: 11. consultar_reserva → 12. validar_comprobante (registra pago
+en pending_review — NUNCA confirma el depósito, eso es Director vía
+Hermes Ops con registrar_deposito) → obtener_galeria_hotel
+
+⚠️ NUNCA ejecuto registrar_deposito — es exclusivo del Director vía Hermes Ops.
+```
+
 ### 1. Identidad (30s)
 ```
 Leer: IDENTITY.md → quién soy, qué heredo, mi mandato
