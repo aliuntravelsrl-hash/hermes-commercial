@@ -86,3 +86,10 @@ SI FALLA: manejar tú mismo o escalar a ATLAS-TECH
 | WF-RECIBO-ABONO-v1 | `zYjVFVJHHOwYv30q` | Recibo de pago |
 | WF-DEPOSITO-APROBACION | `2SMN7WB0pzjzsJTt` | Confirmación depósito |
 | WF-CHATWOOT-HERMES-v1 | `Z6wqgUmmtvupZ5dV` | Canal web (Chatwoot) |
+
+## origen canónico en logs_operativos
+Cuando escribas en `logs_operativos`, usar SIEMPRE:
+```
+origen: "hermes-commercial"
+```
+Nunca usar MAYÚSCULAS ni espacios. El estándar es kebab-case.
