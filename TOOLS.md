@@ -171,3 +171,82 @@ consultar_hotel_knowledge()
 El sub-agente NUNCA escribe en hotel_knowledge.
 Solo consulta y registra gaps.
 La inteligencia del sistema crece via: gap → QA → Intel → Director → conocimiento canónico.
+
+
+---
+
+## VOICE-005: CANAL UNIFICADO + PDF AUTOMÁTICO (22 Jul 2026)
+
+### El canal es solo un transport adapter
+Un cliente puede: Instagram → WhatsApp → Voz → Chatwoot
+**Sin perder la sesión comercial.**
+Todas las conversaciones escriben a `conversation_sessions`.
+
+---
+
+### `canal_recibir_mensaje` — entrada unificada
+**RPC:** `canal_recibir_mensaje(canal, telefono?, lead_id?, contenido, agente, metadata?)`
+**Llamar:** Al recibir cualquier mensaje entrante (ya integrado en WF-CHATWOOT)
+
+```json
+{
+  "p_canal": "whatsapp",
+  "p_telefono": "+18091234567",
+  "p_contenido": "Quiero un hotel en Punta Cana",
+  "p_agente": "hermes-commercial"
+}
+```
+**Retorna:** `{ lead_id, session_id, accion }` — el agente usa `session_id` en las siguientes calls.
+
+---
+
+### `canal_enviar_respuesta` — registrar respuesta del agente
+**RPC:** `canal_enviar_respuesta(session_id, contenido, agente, canal, doc_tipo?, pdf_url?)`
+
+```json
+{
+  "p_session_id": "uuid",
+  "p_contenido": "Tenemos el Hard Rock disponible para esas fechas...",
+  "p_agente": "hermes-commercial",
+  "p_canal": "whatsapp",
+  "p_doc_tipo": "COTIZACION",
+  "p_pdf_url": "https://...pdf"
+}
+```
+**Cuándo incluir pdf_url:** Cuando se generó DOC-1/2/3/4 en esta respuesta.
+
+---
+
+### `avanzar_pipeline` — mover el lead en el CRM
+**RPC:** `avanzar_pipeline(lead_id, nuevo_stage, session_id?, nota?)`
+
+**Stages disponibles:**
+```
+nuevo → contactado → cotizacion_enviada → validacion_pago
+→ deposito_recibido → saldo_pendiente → en_fulfillment
+→ completado | perdido
+```
+
+**Cuándo llamar:**
+```
+PDF cotización enviado     → avanzar_pipeline(lead_id, 'cotizacion_enviada')
+Cliente confirma pago      → avanzar_pipeline(lead_id, 'validacion_pago')
+Director libera (depósito) → avanzar_pipeline(lead_id, 'deposito_recibido')
+```
+
+---
+
+### Flujo completo de una conversación comercial
+
+```
+1. Cliente escribe → canal_recibir_mensaje() → session_id
+2. Agente responde → canal_enviar_respuesta(session_id, texto)
+3. Si cotización   → POST /webhook/aliun-cotizacion-individual
+                   → avanzar_pipeline(lead_id, 'cotizacion_enviada')
+                   → canal_enviar_respuesta(session_id, link_pdf, doc_tipo='COTIZACION')
+4. Cliente paga    → avanzar_pipeline(lead_id, 'validacion_pago')
+5. Director libera → avanzar_pipeline(lead_id, 'deposito_recibido')
+                   → POST /webhook/aliun-recibo-abono → DOC-3
+6. GO number       → avanzar_pipeline(lead_id, 'en_fulfillment')
+                   → POST /webhook/aliun-voucher → DOC-4
+```
