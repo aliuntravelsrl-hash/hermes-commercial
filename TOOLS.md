@@ -94,3 +94,80 @@ exchange_rates:  currency_pair, rate_buy, rate_sell, is_active
 ---
 
 *Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+
+
+---
+
+## HOTEL KNOWLEDGE TOOLS (HK-003 — 22 Jul 2026)
+
+### Cuándo usar
+Antes de responder cualquier pregunta específica sobre un hotel
+(restaurantes, servicios, actividades, piscinas, políticas, secretos).
+NO usar para precios ni disponibilidad — esos van a buscar_hoteles.
+
+---
+
+### `consultar_hotel_knowledge`
+**RPC:** `consultar_y_registrar(hotel_id, pregunta, session_id?, lead_id?, agente, canal)`
+**Endpoint:** `POST /rest/v1/rpc/consultar_y_registrar`
+
+**Cuándo:** Cliente hace pregunta específica sobre el hotel.
+
+**Payload:**
+```json
+{
+  "p_hotel_id":   "uuid del hotel",
+  "p_pregunta":   "¿tienen shows nocturnos?",
+  "p_session_id": "uuid de la sesión activa",
+  "p_lead_id":    "uuid del lead",
+  "p_agente":     "hermes-commercial",
+  "p_canal":      "whatsapp"
+}
+```
+
+**Response:**
+```json
+{
+  "encontrado": true,
+  "hotel": "Hard Rock Hotel Punta Cana",
+  "respuesta_sugerida": "El Hard Rock tiene shows nocturnos en el teatro Rock Star...",
+  "confianza": 92,
+  "gap_registrado": false
+}
+```
+
+**Si gap_registrado=true:**
+→ Usar `respuesta_sugerida` (respuesta genérica de espera)
+→ NO inventar información
+→ El gap queda en hotel_qa_log para que QA lo procese
+
+---
+
+### `registrar_gap_manual`
+**RPC:** `registrar_knowledge_gap(hotel_id, pregunta_cliente, respuesta_dada, session_id?, lead_id?)`
+
+**Cuándo:** El sub-agente detecta que su respuesta fue incompleta o incierta
+DESPUÉS de haberla dado. Registra el gap para mejora futura.
+
+---
+
+### Flujo de decisión del sub-agente
+
+```
+¿Pregunta específica sobre el hotel?
+    ↓ SÍ
+consultar_hotel_knowledge()
+    ↓
+¿encontrado=true AND confianza>=80?
+    SÍ → usar respuesta_sugerida directamente
+    NO → usar respuesta_sugerida genérica
+         gap_registrado=true automáticamente
+         NO INVENTAR
+```
+
+---
+
+### Regla absoluta
+El sub-agente NUNCA escribe en hotel_knowledge.
+Solo consulta y registra gaps.
+La inteligencia del sistema crece via: gap → QA → Intel → Director → conocimiento canónico.
