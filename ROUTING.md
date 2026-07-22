@@ -70,3 +70,48 @@ Aprobación: [✅/❌]
 ---
 
 *Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+
+
+---
+
+## KNOWLEDGE-FIRST ROUTING (HK-004 — 22 Jul 2026)
+
+### Regla obligatoria para sub-agentes
+
+Cuando el cliente hace una pregunta ESPECÍFICA sobre un hotel
+(no precio, no disponibilidad — sino características, servicios, actividades):
+
+```
+ANTES de responder:
+    llamar consultar_y_registrar(hotel_id, pregunta, session_id, lead_id)
+
+SI encontrado=true AND confianza≥80:
+    usar respuesta_sugerida ← respuesta canónica verificada
+
+SI encontrado=false OR confianza<80:
+    usar respuesta_sugerida ← respuesta genérica de espera
+    gap_registrado=true automáticamente
+    NO inventar información
+    NO improvisar datos sin verificar
+```
+
+### Preguntas que disparan knowledge check
+- ¿Cuántos restaurantes tiene?
+- ¿Tienen piscina de adultos?
+- ¿Hay shows nocturnos?
+- ¿El spa está incluido?
+- ¿Cuál es la política de cancelación?
+- ¿El kids club tiene límite de edad?
+- ¿Qué incluye el todo incluido?
+- ¿Cuántas piscinas hay?
+- Cualquier pregunta sobre servicios, actividades o instalaciones
+
+### Preguntas que NO disparan knowledge check
+- ¿Cuánto cuesta? → buscar_hoteles + calcular_cotizacion
+- ¿Hay disponibilidad? → buscar_hoteles
+- ¿Cuál es la mejor opción para mí? → vendedor sub-agente
+
+### El gap es aprendizaje, no fracaso
+Si gap_registrado=true → el sistema aprendió que falta esa info.
+QA lo procesará. Intel lo investigará. La próxima vez habrá respuesta.
+El agente NO debe disculparse — solo decir que confirmará con el proveedor.
