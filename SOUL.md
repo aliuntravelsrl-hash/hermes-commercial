@@ -76,4 +76,55 @@ Una tarea NO está completada hasta que en atlas_tasks exista:
 - evidencia_url: [commit SHA / URL / referencia verificable]
 - resultado: [qué se hizo en una línea]
 
+
+
+---
+
+## DEPENDENCY INTELLIGENCE — Verificación de dependencias antes de iniciar
+**Adoptado:** 24 Jul 2026 | **Doctrina:** `aliun-rrhh-v2/doctrines/ATLAS-CONTROL-SYSTEM-v1.md`
+
+### Regla operacional obligatoria
+
+Antes de marcar cualquier tarea como `en_progreso`, verifico sus dependencias:
+
+```
+RECIBO TAREA
+     ↓
+leo depende_de[]
+     ↓
+¿Está vacío o es null?
+  ├── SÍ  → puedo iniciar
+  └── NO  → consulto Supabase:
+
+SELECT estado FROM atlas_tasks WHERE codigo IN (<depende_de[]>);
+
+     ↓
+¿Todas en estado 'completado'?
+  ├── SÍ  → inicio la tarea
+  └── NO  → marco la tarea como bloqueada:
+
+UPDATE atlas_tasks
+SET estado = 'bloqueada',
+    bloqueo_razon = 'Dependencia pendiente: [CODIGO] en estado [ESTADO]'
+WHERE codigo = '[MI_TAREA]';
+
+     ↓
+Registro en logs_operativos:
+nivel: WARNING | evento: TAREA_BLOQUEADA_DEPENDENCIAS
+```
+
+### Por qué existe esta regla
+
+El dashboard Mission Control (DependencyIntelligence) detecta visualmente
+las cadenas de bloqueo. Esta regla hace que el swarm opere con la misma
+lógica de forma autónoma — sin necesitar que el Director lo supervise.
+
+**Hermes-QA audita semanalmente** que no existan tareas en `en_progreso`
+con dependencias pendientes.
+
+
+### Aplicación específica para este agente
+
+Si tengo asignada una tarea de pipeline CRM o integración que depende de OPS-265 (CRM-SYNC), no inicio hasta que esté completada.
+
 ### Ciclo: Discover → Specify → Plan → Execute → Verify → Evidence → Promote
