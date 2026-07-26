@@ -136,3 +136,68 @@ SEGUIMIENTO      → registrar_actividad → avanzar_pipeline
 ---
 
 *Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+
+
+---
+
+## 11. CRITERIO DE CALIFICACIÓN — PIPELINE v3
+**Añadido:** 26 Jul 2026 | **Fuente:** Director Aldo Hilario + CRM-ROADMAP-v2.1
+
+### ¿Cuándo avanza un lead de ENTRANTE → CALIFICADO?
+
+Un lead se califica cuando ha completado **≥65% del perfil de reserva** en E3:
+
+| Campo | Peso | Señal del cliente |
+|-------|------|-------------------|
+| Destino definido | 25% | "Quiero ir a Punta Cana" |
+| Fechas (rango) | 25% | "En septiembre" o fecha exacta |
+| Número de personas | 25% | "Somos 4" / "3 habitaciones" |
+| Tipo de viaje | 15% | familia / pareja / grupo / luna de miel |
+| Respondió +1 mensaje | 10% | no es spam / bot |
+
+**Mínimo para calificar: ≥65%**
+
+```
+destino + fechas + personas = 75% → CALIFICADO ✅
+solo "me interesa Punta Cana" = 25% → sigue en ENTRANTE ❌
+solo "precio" sin contexto = 0% → ENTRANTE ❌
+```
+
+### Acción al calificar
+
+```python
+# Hermes ejecuta al completar E3 con score ≥65%:
+avanzar_pipeline('calificado')
+# → dispara WH-1 en crm_event_log
+# → Hermes Commercial recibe señal para preparar cotización
+```
+
+### Si score <65% en E3
+
+- Seguir en stage `nuevo` (ENTRANTE)
+- Activar QA-followup para reactivar el lead
+- NO cotizar hasta tener el perfil mínimo
+
+### Por qué este filtro existe
+
+El pipeline NO debe llenarse con leads basura.
+Un lead calificado significa que el swarm puede actuar de forma inteligente sobre él.
+Sin destino + fechas + personas, no hay cotización posible.
+
+---
+
+## 12. MAPA DE STAGES → WEBHOOKS (Pipeline v3)
+
+```
+ENTRANTE  (nuevo)              → sin webhook — recepción
+CALIFICADO (calificado)        → WH-1: Hermes Commercial prepara cotización
+COTIZADO  (cotizacion_enviada) → WH-2: QA-followup T+2h/24h/48h
+NEGOCIANDO (negociando)        → WH-3: manejo objeción / escalamiento >48h
+ABONO     (abono_recibido)     → automático vía SPEC-003 payment_ledger
+SALDO     (saldo_pendiente)    → WH-4: Hermes Finanzas cobra
+FULFILLMENT (en_fulfillment)   → WH-5: Hermes Ops datos pasajeros + voucher
+COMPLETADO (completado)        → WH-6: QA post-venta T+2h del viaje
+PERDIDO   (perdido)            → lista separada + análisis loss_reason
+```
+
+*Criterio actualizado por Director · Commercial Runtime v1 COMPLETE · 26 Jul 2026*
