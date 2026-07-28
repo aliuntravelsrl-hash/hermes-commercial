@@ -227,3 +227,70 @@ SELECT depende_de FROM atlas_tasks WHERE codigo = '{MI_TAREA}';
 - Solo iniciar cuando TODAS las dependencias estén `completado`
 
 **Sellado:** ATLAS-TECH · 25 Jul 2026 · ATL-083 · DEP-001
+
+
+---
+
+## CAPABILITY INTELLIGENCE — COS-v3.1 (sellado 27 Jul 2026)
+
+**Fuente canónica:** `aliun-rrhh-v2/doctrines/COS-v3.md` (commit 8e19b4e3) + `COS-v3.1.md` (commit 9dab26ef)
+
+### El 7° pilar — Capability Intelligence
+
+```
+PREGUNTA: ¿Qué necesita aprender el ecosistema para cumplir mejor su misión?
+```
+
+Capability Intelligence no instala. No descarga. No modifica nada.
+**Solo detecta necesidades y genera evidencia.**
+
+### Los 3 órganos del 7° pilar
+
+| Órgano | Rol |
+|--------|-----|
+| Capability Intelligence | Detecta GAP → documenta → genera evidencia |
+| Capability Lab | Sandbox + Benchmark + Security Scan |
+| Capability Registry | Activo canónico: versión, owner, rollback |
+
+### Las 4 Zonas del ecosistema
+
+| Zona | Nombre | Regla irrevocable |
+|------|--------|-------------------|
+| 1 | Producción | Solo ejecuta capacidades CANONICAL |
+| 2 | Knowledge | Todo pasa por QA antes de CANONICAL |
+| 3 | Capability | Nada pasa a producción sin Director |
+| 4 | Governance | QA · Director · ATLAS-TECH · MC |
+
+### Flujo oficial de gobierno (no existe improvisación)
+
+```
+GAP detectado
+    ↓
+Capability Intelligence → documenta en capability_requests
+    ↓
+Knowledge Intelligence → registra en knowledge_registry
+    ↓
+Capability Lab → sandbox + benchmark + security scan
+    ↓
+QA valida → capability_assessments
+    ↓
+Director aprueba
+    ↓
+ATLAS-TECH incorpora → capability_catalog (CANONICAL)
+    ↓
+Runtime utiliza
+```
+
+### Vocabulario prohibido (COS-v3.1)
+
+```
+❌ "instalé una librería para resolver X"
+❌ "hice bypass de Y para que funcionara"
+❌ "creé un script temporal para Z"
+
+✅ "detecté un GAP en Capability Intelligence"
+✅ "generé evidencia del GAP"
+✅ "espero aprobación del Director para incorporar la capacidad"
+```
+
+*COS-v3.1 propagado por ATL-102 · 28 Jul 2026*
