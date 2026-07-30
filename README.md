@@ -1,76 +1,44 @@
 # Hermes Commercial
-
-## Propósito
-
-Frente comercial oficial de ALIUN TRAVEL SRL. Agente orquestador swarm que convierte leads WhatsApp en reservas confirmadas.
+> Dominio: **Ventas · CRM · Booking · Pricing · Legal**
 
 ## Identidad
+**Rol en el swarm:** executor
+**Propósito:** Motor de ventas y CRM. Gestiona el pipeline comercial, cotizaciones, reservas y comunicación con clientes de Aliun Travel SRL.
 
-**Hermes Commercial** — agente orquestador con modelo económico de amplio contexto.
-Herencia limpia de Paperclip OTA + OpenClaw V2. Sin marketing. Solo SOP E2E del flujo del cliente.
+## Dependencias
+| Tipo | Fuente |
+|------|--------|
+| Constitución | [atlas-cos-v1](https://github.com/aliuntravelsrl-hash/atlas-cos-v1) |
+| Protocolos activos | TPP-v1 · KBP-v1 · POI-v1 · ONP-v1 · SPI-v1 · SPEC-024 |
+| MCP / Herramientas | atlas-sales-mcp · Supabase · Chatwoot · OpenRouter |
+| Knowledge Manifest | `atlas-cableados/knowledge/manifests/hermes-commercial.yaml` |
 
-## Cantera heredada
-
-- `paperclip-ota-agents` — ARCHIVADO, solo lectura, fuente histórica
-- `atlas-sales-v2` — ARCHIVADO, solo lectura, cantera inmediata
-
-No se borran, no se modifican. Sirven como referencia.
-
-## Estructura
-
-```
-hermes-commercial/
-├── README.md                    # Este documento
-├── SOUL.md                      # Alma del Gerente Comercial
-├── IDENTITY.md                  # Identidad doctrinal Hermes Commercial
-├── FRAMEWORK.md                 # 7 leyes de cierre (Kennedy+Belfort §16)
-├── ROUTING.md                   # Matriz de ruteo comercial (6 departamentos)
-├── RUTINA.md                    # 10 estados del flujo de venta E1→E10
-├── TOOLS.md                     # 18 MCP tools + nativas
-├── REHIDRATACION.md             # Rutina de arranque del orquestador
-├── ARCHITECTURE.md              # Arquitectura swarm + modelos + costos
-├── config/
-│   └── routing_matrix.js        # Matriz de ruteo ejecutable
-├── agents/
-│   ├── vendedor.md              # Prompt sub-agente ventas
-│   ├── cotizador.md             # Prompt sub-agente cotización
-│   ├── qa-followup.md           # Prompt sub-agente seguimiento
-│   └── finanzas.md              # Prompt sub-agente pagos
-└── knowledge/
-    └── extracted-intel.md       # Inteligencia heredada adaptada
-```
-
-## Flujo operativo
+## Fuente Canónica
+Toda doctrina, protocolo y especificación vive en **atlas-cos-v1**.
+Este repositorio **implementa** — nunca duplica doctrina.
 
 ```
-WhatsApp (+1 809-510-9396) → Meta Cloud API → Webhook → n8n
-  → Hermes Commercial (orquestador swarm)
-    → Sub-agente vendedor (conecta + cotiza)
-    → Sub-agente cotizador (RPCs Supabase)
-    → Sub-agente finanzas (valida pagos)
-    → Sub-agente QA followup (T+2h/24h/48h)
-    → Supabase (hotels, rates, bookings, crm_leads)
-    → Chatwoot (inbox humano para escalamiento)
+atlas-cos-v1 (Constitución)
+      │
+      ▼
+Hermes Commercial
+(Implementación de dominio)
 ```
 
-## Modelo orquestador
+## Sub-agentes
+vendedor · cotizador · finanzas · qa-followup (en migración a hermes-qa)
 
-`google/gemini-2.0-flash-001` — 1M contexto, $0.10/$0.40 por 1M tokens
+## Repos relacionados
+- `atlas-cos-v1` — fuente canónica del COS
+- `atlas-cableados` — rehidratación y knowledge manifests
+- `aliun-rrhh-v2` — perfiles RRHH-IA y roles
 
-## MCP Server
+## Estado
+`CONVERGENCIA EN PROGRESO` — REPO-MOD-001 Fase 2
 
-`https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` — 18 tools, 5/5 RPCs E2E OK
-
-## Fuente de verdad
-
-- **Repo:** éste (`aliuntravelsrl-hash/hermes-commercial`)
-- **MCP:** `aliuntravelsrl-hash/atlas-sales-mcp`
-- **Notion War Room:** `35f293f4-6b24-8121-ac1d-f43b90ea8d37`
-
-## Regla
-
-No mezclar canteras en este repo. Solo estructura limpia con inteligencia heredada adaptada.
+## Últimos cambios
+Ver commits del repositorio.
 
 ---
-
-*Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+*Aliun Travel SRL · Director Aldo Hilario · ATLAS-TECH*
+*COS-v3.5 · [atlas-cos-v1](https://github.com/aliuntravelsrl-hash/atlas-cos-v1)*
