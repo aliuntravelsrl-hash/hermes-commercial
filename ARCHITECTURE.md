@@ -1,97 +1,85 @@
-# ARCHITECTURE.md — Arquitectura Swarm Hermes Commercial
-## Aliun Travel SRL · 29 MAY 2026
+# ARCHITECTURE.md — Arquitectura Swarm & Omnicanal Hermes Commercial
+## Aliun Travel SRL · Septiembre 2026 · COS-v3.5 (TO-BE)
 
 ---
 
 ## Modelo Orquestador
 
-**`google/gemini-2.0-flash-001`**
+**`google/gemini-2.0-flash-001`** (Vía OpenRouter)
 - Contexto: **1M tokens**
-- Input: **$0.10 / 1M tokens**
-- Output: **$0.40 / 1M tokens**
-- Function calling nativo, velocidad <2s
-- Cache read: $0.025/1M (75% descuento en prompts repetidos)
-
-### Costo mensual estimado (200 conversaciones/día)
-- Input: ~600K tokens/día = $0.06/día
-- Output: ~200K tokens/día = $0.08/día
-- **Mensual: ~$4-5 USD** (solo orquestador)
+- Function calling nativo, latencia ultra-baja (<1.5s)
+- Orquestación de intención, despacho de sub-agentes, control de contexto conversacional y audio sessions.
 
 ---
 
-## Sub-agentes
+## Sub-agentes Especializados
 
-| Agente | Modelo OpenRouter | Contexto | Input/1M | Output/1M | Función |
-|--------|-------------------|----------|----------|-----------|---------|
-| **vendedor** | `google/gemini-2.0-flash-lite-001` | 1M | $0.07 | $0.30 | Conversación ventas + construcción de valor |
-| **cotizador** | `qwen/qwen3.5-flash-02-23` | 1M | $0.07 | $0.26 | RPCs Supabase + cálculos de precio |
-| **qa-followup** | `mistralai/ministral-8b-2512` | 262K | $0.15 | $0.15 | Seguimientos T+2h/24h/48h |
-| **finanzas** | `qwen/qwen3.6-flash` | 1M | $0.19 | $1.12 | Validación de pagos + depósitos |
-| **qa-auditor** | `google/gemini-2.0-flash-lite-001` | 1M | $0.07 | $0.30 | Auditoría de calidad + KPIs + mejora de prompts |
-
-### Costo sub-agentes mensual estimado
-- vendedor: ~$3-5/mes
-- cotizador: ~$2-3/mes
-- qa-followup: ~$1-2/mes
-- finanzas: ~$1-2/mes
-- **Total sub-agentes: ~$7-12/mes**
-
-### Costo total orquestación + sub-agentes: **~$11-17 USD/mes**
+| Agente | Modelo OpenRouter | Contexto | Función |
+|--------|-------------------|----------|---------|
+| **vendedor** | `google/gemini-2.0-flash-lite-001` | 1M | Conversación de ventas, construcción de valor, negociación y diálogo en tiempo real de voz |
+| **cotizador** | `qwen/qwen3.5-flash-02-23` | 1M | RPCs Supabase determinísticas, paridad de inventario y cálculo de precios |
+| **qa-followup** | `mistralai/ministral-8b-2512` | 262K | Cadencia de seguimientos automáticos T+2h/24h/48h |
+| **finanzas** | `qwen/qwen3.6-flash` | 1M | OCR y validación de comprobantes de pago + alerta directiva |
+| **qa-auditor** | `google/gemini-2.0-flash-lite-001` | 1M | Auditoría continua de calidad comercial y afinación de prompts |
 
 ---
 
-## Flujo de mensajes
+## Arquitectura Omnicanal (Dual-Channel + Voice Realtime)
+
+El canal de entrada actúa estrictamente como un **Transport Adapter**. La sesión, contexto y estado residen de forma unificada en `conversation_sessions` y `crm_leads`.
 
 ```
-Cliente WhatsApp (+1 809-510-9396)
-  → Meta Cloud API
-    → Webhook Meta → Chatwoot
-      → Webhook Chatwoot message_created → n8n
-        → Hermes Commercial (orquestador)
-          ├─ Clasifica intención
-          ├─ Despacha a sub-agente
-          │   ├─ vendedor (E2-E4: conexión, descubrimiento, valor)
-          │   ├─ cotizador (E5: disponibilidad, precio, paquete)
-          │   ├─ finanzas (E8: comprobante, depósito)
-          │   └─ qa-followup (E10: seguimientos)
-          ├─ Ejecuta tools MCP/Supabase
-          └─ Responde vía Chatwoot API → Meta Cloud API → Cliente
+Canal Entrada:
+  ├─ WhatsApp (Meta Cloud API / Baileys Gateway)
+  ├─ Chatwoot (Inbox Web / Escalación Humana)
+  └─ ChatGPT Voice / Realtime Voice Gateway (Voz en Tiempo Real)
+       │
+       ▼
+  Webhook Inbound (`canal_recibir_mensaje`)
+       │
+       ▼
+  Hermes Commercial Orquestador (Gemini 2.0 Flash)
+       ├─ Clasifica intención & perfila cliente
+       ├─ Orquesta sub-agentes (vendedor, cotizador, finanzas)
+       ├─ Consulta SSOT de Ariadne Data & Paridad Atlas Intel
+       ├─ Valida tasa cambiaria oficial en Misión Control Live (`public.exchange_rates`)
+       └─ Genera respuesta (`canal_enviar_respuesta` / Audio Stream / DOC-1 PDF)
 ```
 
 ---
 
-## Infraestructura
+## Voice Architecture: ChatGPT Voice / Realtime Gateway
 
-| Componente | URL | Propósito |
-|-----------|-----|-----------|
-| MCP Server | `https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` | 18 tools, 5/5 RPCs E2E OK |
-| n8n | `https://n8n-n8n.xaruuo.easypanel.host` | Orquestación workflows |
-| Chatwoot | `https://n8n-chatwoot.xaruuo.easypanel.host` | Inbox humano + escalamiento |
-| Supabase (MCP) | `oyihiyivdhfxpyiwnmqk.supabase.co` | Base de datos producción |
-| EasyPanel | `72.61.12.170:3000` | Deploy servicios |
-
----
-
-## WhatsApp Canal Oficial
-
-| Campo | Valor |
-|-------|-------|
-| Número | +1 809-510-9396 |
-| Meta App ID | 4369066433358667 |
-| WABA ID | 1664245875019293 |
-| Phone Number ID | 1200844416435868 |
-| System User | adminsrl (ID 61577055742856, token permanente) |
-| Permisos | whatsapp_business_messaging + management + manage_events |
+1. **Protocolo:** Webhook bidireccional / WebSocket de audio streaming.
+2. **Componentes del Pipeline de Voz:**
+   - **Ingesta:** Captura de audio del cliente (llamada entrante / IVR inteligente).
+   - **STT & Speech Engine:** ChatGPT Voice Provider API (OpenAI Realtime / ChatGPT Voice Endpoint).
+   - **Context Injection:** Inyección de `session_id`, historial de cliente y `hotel_knowledge` en caliente.
+   - **Tool Execution:** Invocación de `consultar_disponibilidad` y `calcular_cotizacion` durante la llamada.
+   - **TTS & Retorno:** Generación de voz natural y respuesta fluida de audio al cliente.
+3. **Estado de Integración:** Arquitectura y esquemas de base de datos (`conversation_sessions`, `voice_sessions`) listos; activable inmediatamente al inyectar la API key del proveedor en el entorno de despliegue.
 
 ---
 
-## Fallback
+## Infraestructura & Servidores
 
-Si Gemini 2.0 Flash no disponible:
-1. `meta-llama/llama-4-maverick` (1M ctx, $0.15/$0.60)
-2. `qwen/qwen3.6-flash` (1M ctx, $0.19/$1.12)
-3. `deepseek/deepseek-v4-flash` (1M ctx, $0.10/$0.20)
+| Componente | URL / Host | Propósito |
+|-----------|------------|-----------|
+| MCP Server | `https://n8n-atlas-sales-mcp.xaruuo.easypanel.host/mcp` | 18 tools comerciales, RPCs Supabase |
+| n8n Workflows | `https://n8n-n8n.xaruuo.easypanel.host` | Orquestación de webhooks y disparadores |
+| Chatwoot | `https://n8n-chatwoot.xaruuo.easypanel.host` | Inbox omnicanal y takeover humano |
+| Voice Gateway | `hermes-gateway` (Puerto 8644 / Realtime Endpoint) | Puente de voz y streaming de audio |
+| Supabase | `oyihiyivdhfxpyiwnmqk.supabase.co` | Base de datos relacional y vector store |
 
 ---
 
-*Hermes Commercial · Aliun Travel SRL · 29 MAY 2026*
+## Fallback de Modelos de Lenguaje
+
+Si Gemini 2.0 Flash experimenta degradación:
+1. `meta-llama/llama-4-maverick` (1M ctx)
+2. `qwen/qwen3.6-flash` (1M ctx)
+3. `deepseek/deepseek-v4-flash` (1M ctx)
+
+---
+
+*Hermes Commercial · Aliun Travel SRL · TO-BE COS-v3.5*
