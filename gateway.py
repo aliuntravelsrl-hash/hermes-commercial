@@ -214,6 +214,7 @@ class ChatRequest(BaseModel):
     lead_id: Optional[Any] = None
     conv_id: Optional[Any] = None
     correlation_id: Optional[str] = None
+    simulate_failure: Optional[bool] = False
 
 class HandoffRequest(BaseModel):
     handoff_type: str = "pago"
@@ -901,6 +902,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                         if "phone" in fn_args and not fn_args["phone"] and telefono:
                             fn_args["phone"] = telefono
                             
+                        if fn_name == "registrar_abono_financiero" and req_simulate_failure:
+                            fn_args["monto"] = -100.0 # Force Business NACK for failure containment testing
+                            
                         tool_result = execute_tool(fn_name, fn_args, correlation_id=cid)
                         tools_executed.append({
                             "tool": fn_name,
@@ -939,11 +943,18 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                         
                         # TD-10: Strict Failure Containment Verification
                         final_text, contained, reason = enforce_failure_containment(final_text, tools_executed, cid, contacto=contacto)
+                        has_ack = any(t.get("tool") == "registrar_abono_financiero" and t.get("result", {}).get("status") == "ACK" for t in tools_executed)
 
                         return {
                             "ok": True,
                             "respuesta": final_text,
                             "model": model,
+                            "c07_containment": {
+                                "enforced": contained,
+                                "downstream_ack": has_ack,
+                                "reason": reason,
+                                "correlation_id": cid
+                            },
                             "tool_calls_executed": tools_executed,
                             "source": "llm_tool_calling",
                             "correlation_id": cid
@@ -951,10 +962,17 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                 
                 content = choice.get("content", "").strip()
                 if content:
+                    final_text, contained, reason = enforce_failure_containment(content, [], cid, contacto=contacto)
                     return {
                         "ok": True,
-                        "respuesta": content,
+                        "respuesta": final_text,
                         "model": model,
+                        "c07_containment": {
+                            "enforced": contained,
+                            "downstream_ack": False,
+                            "reason": reason,
+                            "correlation_id": cid
+                        },
                         "tool_calls_executed": [],
                         "source": "llm_direct",
                         "correlation_id": cid
@@ -1023,7 +1041,8 @@ async def chat_endpoint(req: ChatRequest, request: Request, response: Response):
     cid = req.correlation_id or request.headers.get("X-Correlation-ID") or C07CommercialHandoffManager.generate_correlation_id()
     response.headers["X-Correlation-ID"] = cid
     try:
-        res = run_hermes_agent_workflow(req.message, req.contacto or "Viajero", req.telefono or "", correlation_id=cid, req_simulate_failure=bool(req.simulate_failure))
+        sim_fail = bool(getattr(req, "simulate_failure", False) or False)
+        res = run_hermes_agent_workflow(req.message, req.contacto or "Viajero", req.telefono or "", correlation_id=cid, req_simulate_failure=sim_fail)
         log_operativo("GATEWAY_CHAT_PROCESADO", f"cid={cid} conv_id={req.conv_id} tools_count={len(res.get('tool_calls_executed', []))} model={res.get('model')}", payload={"correlation_id": cid})
         has_ack = any(t.get("tool") == "registrar_abono_financiero" and t.get("result", {}).get("status") == "ACK" for t in res.get("tool_calls_executed", []))
         if "c07_containment" not in res:
