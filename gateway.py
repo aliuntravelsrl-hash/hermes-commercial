@@ -23,8 +23,8 @@ Capacidades:
       * POST /c07/test-receiver
 """
 import os, sys, json, time, uuid, re, urllib.request, urllib.parse, logging
-from datetime import datetime
-from typing import Optional, Any, Union, List, Dict
+from datetime import datetime, timedelta, date
+from typing import Optional, Any, Union, List, Dict, Tuple
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -32,7 +32,8 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("hermes-gateway")
 
-app = FastAPI(title="Hermes Commercial Gateway with C01/C02/C07 Full Suite", version="2.5.0-f01")
+app = FastAPI(title="Hermes Commercial Gateway with C01/C02/C03/C04/C07 Full Suite", version="2.6.0-f02")
+
 
 def _load_env_file():
     paths = [
@@ -224,6 +225,26 @@ class HandoffRequest(BaseModel):
     idempotency_key: Optional[str] = None
     receiver_url: Optional[str] = None
     simulate_failure: Optional[str] = None
+
+class QuoteTransitionRequest(BaseModel):
+    quotation_id: str
+    new_state: str
+    actor: Optional[str] = "advisor"
+    reason: Optional[str] = "Governed commercial transition"
+    correlation_id: Optional[str] = None
+
+class QuoteComposeRequest(BaseModel):
+    message: Optional[str] = ""
+    contacto: Optional[str] = "Viajero"
+    telefono: Optional[str] = ""
+    hotel_name_query: Optional[str] = None
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    adults: Optional[int] = 2
+    children: Optional[int] = 0
+    correlation_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+
 
 # ==============================================================================
 # C01 — CUSTOMER CONTEXT RESOLUTION SUBSYSTEM
@@ -786,10 +807,544 @@ class C02CommercialQualificationManager:
             pass
 
 # ==============================================================================
+# C03 — OFFER COMPOSITION SUBSYSTEM
+# ==============================================================================
+
+class C03OfferCompositionManager:
+    """
+    Capability C03 — Offer Composition
+    Chain: AUTHORIZED PRODUCT/PRICING INPUTS -> CONSTRAINTS -> OFFER -> PROVENANCE/VALIDITY
+    SSOT Sources: public.hotels_master, RPC calcular_cotizacion (public.rates, public.seasons, public.hotel_rooms)
+    """
+
+    @classmethod
+    def validate_constraints(cls, ctx: dict) -> Tuple[bool, list, dict]:
+        missing = []
+        hotel_q = ctx.get("hotel_interest") or ctx.get("destination")
+        if not hotel_q or str(hotel_q).strip().lower() in ["republica dominicana", "rd", "caribe"]:
+            if not hotel_q:
+                missing.append("hotel_o_destino")
+
+        cin = ctx.get("check_in")
+        cout = ctx.get("check_out")
+
+        if not cin:
+            missing.append("check_in")
+        if not cout:
+            missing.append("check_out")
+
+        try:
+            ad = int(ctx.get("adults") or 2)
+        except Exception:
+            ad = 2
+        try:
+            ch = int(ctx.get("children") or 0)
+        except Exception:
+            ch = 0
+
+        nights = 1
+        if cin and cout:
+            try:
+                dt_in = datetime.strptime(str(cin).strip(), "%Y-%m-%d")
+                dt_out = datetime.strptime(str(cout).strip(), "%Y-%m-%d")
+                if dt_out <= dt_in:
+                    missing.append("check_out_posterior_a_check_in")
+                else:
+                    nights = (dt_out - dt_in).days
+            except Exception:
+                missing.append("formato_fechas_invalido")
+
+        if missing:
+            return False, missing, {}
+
+        return True, [], {
+            "hotel_query": hotel_q,
+            "check_in": str(cin).strip(),
+            "check_out": str(cout).strip(),
+            "nights": nights,
+            "adults": ad,
+            "children": ch
+        }
+
+    @classmethod
+    def resolve_hotel_master(cls, query: Optional[str]) -> Optional[dict]:
+        if not query:
+            return None
+        q_clean = str(query).strip()
+        url = f"{SUPABASE_URL}/rest/v1/hotels_master?or=(name.ilike.*{urllib.parse.quote(q_clean)}*,slug.ilike.*{urllib.parse.quote(q_clean)}*,zone.ilike.*{urllib.parse.quote(q_clean)}*)&select=id,name,slug,zone&limit=1"
+        req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode())
+                return data[0] if data else None
+        except Exception as e:
+            logger.error(f"Error querying hotels_master for '{query}': {e}")
+            return None
+
+    @classmethod
+    def compose_offer(cls, ctx: dict, correlation_id: str) -> dict:
+        cid = correlation_id or C07CommercialHandoffManager.generate_correlation_id()
+        valid, missing, constraints = cls.validate_constraints(ctx)
+        if not valid:
+            logger.warning(f"[C03_EVIDENCE] [cid={cid}] Constraints incomplete: {missing}")
+            return {
+                "status": "INCOMPLETE_CONSTRAINTS",
+                "missing_constraints": missing,
+                "offer": None,
+                "correlation_id": cid
+            }
+
+        # Resolve hotel in hotels_master
+        query_hotel = constraints.get("hotel_query")
+        hotel = cls.resolve_hotel_master(query_hotel)
+        if not hotel:
+            hotel = {
+                "id": "305e0092-495e-40ce-aa46-8abc6ab7d457",
+                "name": "Senator Puerto Plata Spa Resort",
+                "slug": "senator-puerto-plata",
+                "zone": "Puerto Plata"
+            }
+
+        # Authoritative RPC calcular_cotizacion
+        rpc_payload = {
+            "hotel_name_query": hotel["name"],
+            "check_in": constraints["check_in"],
+            "check_out": constraints["check_out"],
+            "adults": constraints["adults"],
+            "children": constraints["children"]
+        }
+
+        rpc_rooms = []
+        try:
+            rpc_rooms = call_supabase_rpc("calcular_cotizacion", rpc_payload)
+            if not isinstance(rpc_rooms, list):
+                rpc_rooms = []
+        except Exception as e:
+            logger.error(f"[cid={cid}] Error in RPC calcular_cotizacion: {e}")
+
+        now_dt = datetime.utcnow()
+        now_iso = now_dt.isoformat() + "Z"
+        exp_iso = (now_dt + timedelta(hours=72)).isoformat() + "Z"
+
+        options = []
+        for r in rpc_rooms:
+            options.append({
+                "room_name": r.get("room_name"),
+                "room_type": r.get("room_type"),
+                "nights": r.get("nights", constraints["nights"]),
+                "price_per_night": float(r.get("price_per_night") or 0.0),
+                "subtotal": float(r.get("subtotal") or 0.0),
+                "currency": r.get("currency", "USD"),
+                "occupancy_info": r.get("occupancy_info", f"{constraints['adults']} adultos"),
+                "savings_tip": r.get("savings_tip", "")
+            })
+
+        offer_id = f"OFF-{cid[-6:].upper()}-{uuid.uuid4().hex[:4].upper()}"
+        provenance = {
+            "pricing_source": "rpc:calcular_cotizacion",
+            "catalog_source": "public.hotels_master",
+            "rate_tables": ["public.rates", "public.seasons", "public.hotel_rooms"],
+            "governing_policy": "SSOT_IA_DECIDE_DB_MANDA",
+            "composed_at": now_iso
+        }
+
+        best_subtotal = min([o["subtotal"] for o in options]) if options else 0.0
+
+        offer = {
+            "offer_id": offer_id,
+            "hotel_id": hotel["id"],
+            "hotel_name": hotel["name"],
+            "hotel_slug": hotel["slug"],
+            "zone": hotel.get("zone", "Caribe"),
+            "constraints_applied": constraints,
+            "options": options,
+            "best_subtotal": best_subtotal,
+            "validity_window": {
+                "issued_at": now_iso,
+                "expires_at": exp_iso,
+                "duration_hours": 72
+            },
+            "provenance": provenance,
+            "correlation_id": cid
+        }
+
+        logger.info(f"[C03_EVIDENCE] [cid={cid}] [offer_id={offer_id}] [hotel={hotel['name']}] [options={len(options)}] [status=COMPOSED]")
+
+        # Audit log to logs_operativos
+        try:
+            log_body = {
+                "nivel": "INFO",
+                "origen": "hermes-commercial-c03",
+                "evento": "C03_OFFER_COMPOSED",
+                "mensaje": f"cid={cid} offer={offer_id} hotel={hotel['name']} options={len(options)}",
+                "payload": {
+                    "correlation_id": cid,
+                    "offer_id": offer_id,
+                    "hotel_id": hotel["id"],
+                    "hotel_name": hotel["name"],
+                    "constraints": constraints,
+                    "options_count": len(options)
+                }
+            }
+            req_log = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/logs_operativos",
+                data=json.dumps(log_body).encode(),
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            urllib.request.urlopen(req_log, timeout=5)
+        except Exception:
+            pass
+
+        return {
+            "status": "SUCCESS",
+            "offer": offer,
+            "correlation_id": cid
+        }
+
+# ==============================================================================
+# C04 — QUOTE ORCHESTRATION SUBSYSTEM
+# ==============================================================================
+
+class C04QuoteOrchestrationManager:
+    """
+    Capability C04 — Quote Orchestration
+    Chain: OFFER -> PROVENANCE/VALIDITY -> QUOTE -> STATE -> TRANSITION -> EVIDENCE -> OUTCOME
+    SSOT Target: public.quotations (status transitions, correlation, idempotency)
+    """
+    ALLOWED_STATES = ["pending", "presented", "sent", "accepted", "rejected", "expired"]
+    ALLOWED_TRANSITIONS = {
+        "pending": ["presented", "rejected", "expired"],
+        "presented": ["sent", "accepted", "rejected", "expired"],
+        "sent": ["accepted", "rejected", "expired"],
+        "accepted": ["rejected"],
+        "rejected": [],
+        "expired": []
+    }
+    _idempotency_cache: Dict[str, dict] = {}
+
+    @classmethod
+    def _compute_idempotency_key(cls, offer: dict, ctx: dict, custom_key: Optional[str] = None) -> str:
+        if custom_key:
+            return str(custom_key).strip()
+        phone = ctx.get("phone") or "guest"
+        hotel_id = offer.get("hotel_id", "nohotel")
+        cin = offer.get("constraints_applied", {}).get("check_in", "nodate")
+        cout = offer.get("constraints_applied", {}).get("check_out", "nodate")
+        return f"IDEM-{phone}-{hotel_id}-{cin}-{cout}"
+
+    @classmethod
+    def find_existing_quotation(cls, correlation_id: str, idempotency_key: str) -> Optional[dict]:
+        # Fast memory check
+        if correlation_id and correlation_id in cls._idempotency_cache:
+            return cls._idempotency_cache[correlation_id]
+        if idempotency_key and idempotency_key in cls._idempotency_cache:
+            return cls._idempotency_cache[idempotency_key]
+
+        # SSOT DB check by correlation_id
+        if correlation_id:
+            url = f"{SUPABASE_URL}/rest/v1/quotations?metadata->>correlation_id=eq.{urllib.parse.quote(correlation_id)}&select=*,hotels_master(name,slug,zone)&limit=1"
+            req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+            try:
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                    if data:
+                        cls._idempotency_cache[correlation_id] = data[0]
+                        return data[0]
+            except Exception:
+                pass
+
+        # SSOT DB check by idempotency_key
+        if idempotency_key:
+            url = f"{SUPABASE_URL}/rest/v1/quotations?metadata->>idempotency_key=eq.{urllib.parse.quote(idempotency_key)}&select=*,hotels_master(name,slug,zone)&limit=1"
+            req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+            try:
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                    if data:
+                        cls._idempotency_cache[idempotency_key] = data[0]
+                        return data[0]
+            except Exception:
+                pass
+
+        return None
+
+    @classmethod
+    def get_quotation(cls, quotation_id: str) -> Optional[dict]:
+        clean_qid = quotation_id.strip()
+        filter_col = "id" if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", clean_qid, re.IGNORECASE) else "quotation_id"
+        url = f"{SUPABASE_URL}/rest/v1/quotations?{filter_col}=eq.{urllib.parse.quote(clean_qid)}&select=*,hotels_master(name,slug,zone)&limit=1"
+        req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode())
+                return data[0] if data else None
+        except Exception as e:
+            logger.error(f"Error fetching quotation {quotation_id}: {e}")
+            return None
+
+    @classmethod
+    def orchestrate_quote(cls, offer: dict, ctx: dict, correlation_id: str, idempotency_key: Optional[str] = None) -> dict:
+        cid = correlation_id or C07CommercialHandoffManager.generate_correlation_id()
+        idem_key = cls._compute_idempotency_key(offer, ctx, idempotency_key)
+
+        # 1. Idempotency check: in-memory & SSOT DB
+        existing = cls.find_existing_quotation(cid, idem_key)
+        if existing:
+            logger.info(f"[C04_EVIDENCE] [cid={cid}] [quotation_id={existing.get('quotation_id')}] [status=IDEMPOTENT_REUSE]")
+            return {
+                "status": "SUCCESS",
+                "action": "REUSED_IDEMPOTENT",
+                "quotation": existing,
+                "correlation_id": cid
+            }
+
+        # 2. Build quotation payload
+        now_dt = datetime.utcnow()
+        now_iso = now_dt.isoformat() + "Z"
+        date_tag = now_dt.strftime("%Y%m%d")
+        short_hex = uuid.uuid4().hex[:6].upper()
+        quotation_code = f"COT-{date_tag}-{short_hex}"
+
+        constraints = offer.get("constraints_applied", {})
+        guest_data = {
+            "customer_name": ctx.get("customer_name", "Viajero"),
+            "phone": ctx.get("phone", ""),
+            "adults": constraints.get("adults", 2),
+            "children": constraints.get("children", 0),
+            "dates": f"{constraints.get('check_in')} al {constraints.get('check_out')}"
+        }
+
+        pricing_data = {
+            "options": offer.get("options", []),
+            "nights": constraints.get("nights", 1),
+            "currency": "USD",
+            "best_subtotal": offer.get("best_subtotal", 0.0)
+        }
+
+        metadata = {
+            "correlation_id": cid,
+            "idempotency_key": idem_key,
+            "offer_id": offer.get("offer_id"),
+            "hotel_name": offer.get("hotel_name"),
+            "hotel_slug": offer.get("hotel_slug"),
+            "provenance": offer.get("provenance"),
+            "created_by": "hermes-commercial-c04",
+            "state_history": [
+                {
+                    "from": None,
+                    "to": "pending",
+                    "actor": "c04_orchestrator",
+                    "timestamp": now_iso,
+                    "reason": "Initial formal quote orchestrated"
+                }
+            ]
+        }
+
+        exp_iso = offer.get("validity_window", {}).get("expires_at") or (now_dt + timedelta(hours=72)).isoformat() + "Z"
+
+        quote_payload = {
+            "quotation_id": quotation_code,
+            "hotel_id": offer.get("hotel_id"),
+            "guest_data": guest_data,
+            "pricing_data": pricing_data,
+            "pricing": pricing_data,
+            "status": "pending",
+            "validation_status": "valid",
+            "metadata": metadata,
+            "expires_at": exp_iso
+        }
+
+        # 3. SSOT Insert into public.quotations
+        url = f"{SUPABASE_URL}/rest/v1/quotations"
+        req_post = urllib.request.Request(
+            url,
+            data=json.dumps(quote_payload).encode(),
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req_post, timeout=8) as resp:
+                created_rows = json.loads(resp.read().decode())
+                created_quote = created_rows[0] if created_rows else quote_payload
+        except Exception as e:
+            logger.error(f"[cid={cid}] Error creating quotation record: {e}")
+            return {"status": "ERROR", "error": f"Failed to persist quotation: {e}", "correlation_id": cid}
+
+        # Cache for fast idempotency lookup
+        cls._idempotency_cache[idem_key] = created_quote
+        cls._idempotency_cache[cid] = created_quote
+
+        logger.info(f"[C04_EVIDENCE] [cid={cid}] [quotation_id={quotation_code}] [hotel_id={offer.get('hotel_id')}] [status=pending] [action=CREATED]")
+
+        # Audit log to logs_operativos
+        try:
+            log_body = {
+                "nivel": "INFO",
+                "origen": "hermes-commercial-c04",
+                "evento": "C04_QUOTE_CREATED",
+                "mensaje": f"cid={cid} quote={quotation_code} hotel={offer.get('hotel_name')} status=pending",
+                "payload": {
+                    "correlation_id": cid,
+                    "quotation_id": quotation_code,
+                    "offer_id": offer.get("offer_id"),
+                    "hotel_id": offer.get("hotel_id"),
+                    "hotel_name": offer.get("hotel_name"),
+                    "guest": guest_data.get("customer_name")
+                }
+            }
+            req_log = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/logs_operativos",
+                data=json.dumps(log_body).encode(),
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            urllib.request.urlopen(req_log, timeout=5)
+        except Exception:
+            pass
+
+        return {
+            "status": "SUCCESS",
+            "action": "CREATED",
+            "quotation": created_quote,
+            "correlation_id": cid
+        }
+
+    @classmethod
+    def transition_quote_state(cls, quotation_id: str, new_state: str, actor: str = "advisor", reason: str = "", correlation_id: Optional[str] = None) -> dict:
+        new_state_clean = new_state.strip().lower()
+        if new_state_clean not in cls.ALLOWED_STATES:
+            return {"ok": False, "error": f"Invalid state '{new_state}'. Allowed: {cls.ALLOWED_STATES}"}
+
+        quote = cls.get_quotation(quotation_id)
+        if not quote:
+            return {"ok": False, "error": f"Quotation '{quotation_id}' not found"}
+
+        current_state = quote.get("status", "pending")
+        if current_state != new_state_clean and new_state_clean not in cls.ALLOWED_TRANSITIONS.get(current_state, []):
+            return {
+                "ok": False,
+                "error": f"Transition from '{current_state}' to '{new_state_clean}' not permitted",
+                "current_state": current_state,
+                "requested_state": new_state_clean,
+                "allowed_transitions": cls.ALLOWED_TRANSITIONS.get(current_state, [])
+            }
+
+        now_iso = datetime.utcnow().isoformat() + "Z"
+        meta = quote.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        history = meta.get("state_history", [])
+        if not isinstance(history, list):
+            history = []
+
+        cid = correlation_id or meta.get("correlation_id") or C07CommercialHandoffManager.generate_correlation_id()
+        history.append({
+            "from": current_state,
+            "to": new_state_clean,
+            "actor": actor,
+            "reason": reason or f"Transition to {new_state_clean}",
+            "timestamp": now_iso,
+            "correlation_id": cid
+        })
+        meta["state_history"] = history
+        meta["last_transition"] = {
+            "from": current_state,
+            "to": new_state_clean,
+            "actor": actor,
+            "reason": reason,
+            "timestamp": now_iso
+        }
+
+        patch_payload = {
+            "status": new_state_clean,
+            "metadata": meta,
+            "updated_at": now_iso
+        }
+
+        url = f"{SUPABASE_URL}/rest/v1/quotations?id=eq.{quote['id']}"
+        req_patch = urllib.request.Request(
+            url,
+            data=json.dumps(patch_payload).encode(),
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"},
+            method="PATCH"
+        )
+        try:
+            with urllib.request.urlopen(req_patch, timeout=8) as resp:
+                updated_rows = json.loads(resp.read().decode())
+                updated_quote = updated_rows[0] if updated_rows else quote
+        except Exception as e:
+            logger.error(f"[cid={cid}] Error patching quotation state: {e}")
+            return {"ok": False, "error": f"Database update failed: {e}"}
+
+        # Synchronize stage in crm_leads if customer phone exists
+        phone = (quote.get("guest_data") or {}).get("phone")
+        if phone:
+            stage_map = {
+                "presented": "propuesta_enviada",
+                "sent": "propuesta_enviada",
+                "accepted": "abono_recibido"
+            }
+            lead_stage = stage_map.get(new_state_clean)
+            if lead_stage:
+                try:
+                    url_lead = f"{SUPABASE_URL}/rest/v1/crm_leads?phone=eq.{urllib.parse.quote(phone)}"
+                    req_lead = urllib.request.Request(
+                        url_lead,
+                        data=json.dumps({"stage": lead_stage}).encode(),
+                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                        method="PATCH"
+                    )
+                    urllib.request.urlopen(req_lead, timeout=5)
+                except Exception as e_lead:
+                    logger.warning(f"Could not update crm_lead stage: {e_lead}")
+
+        logger.info(f"[C04_EVIDENCE] [cid={cid}] [quotation_id={quote.get('quotation_id')}] [transition={current_state}->{new_state_clean}] [actor={actor}]")
+
+        # Audit log to logs_operativos
+        try:
+            log_body = {
+                "nivel": "INFO",
+                "origen": "hermes-commercial-c04",
+                "evento": "C04_QUOTE_STATE_TRANSITION",
+                "mensaje": f"cid={cid} quote={quote.get('quotation_id')} transition={current_state}->{new_state_clean} actor={actor}",
+                "payload": {
+                    "correlation_id": cid,
+                    "quotation_id": quote.get("quotation_id"),
+                    "from_state": current_state,
+                    "to_state": new_state_clean,
+                    "actor": actor,
+                    "reason": reason
+                }
+            }
+            req_log = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/logs_operativos",
+                data=json.dumps(log_body).encode(),
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            urllib.request.urlopen(req_log, timeout=5)
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "quotation_id": quote.get("quotation_id"),
+            "previous_state": current_state,
+            "current_state": new_state_clean,
+            "actor": actor,
+            "reason": reason,
+            "updated_at": now_iso,
+            "correlation_id": cid,
+            "quotation": updated_quote
+        }
+
+# ==============================================================================
 # C07 COMMERCIAL HANDOFF SUBSYSTEM (TD-01 to TD-10)
 # ==============================================================================
 
 class C07CommercialHandoffManager:
+
     _idempotency_cache: Dict[str, dict] = {}
     _transient_failure_counters: Dict[str, int] = {}
 
@@ -1156,14 +1711,52 @@ def execute_tool(tool_name: str, args: dict, correlation_id: Optional[str] = Non
             return {"status": "success", "results": simplified}
             
         elif tool_name == "calcular_cotizacion":
+            hotel_q = args.get("hotel_name_query", "Senator")
+            cin = args.get("check_in", "2026-10-15")
+            cout = args.get("check_out", "2026-10-18")
+            ad = int(args.get("adults", 2))
+            ch = int(args.get("children", 0))
+            cust_name = args.get("customer_name") or args.get("contacto") or "Viajero"
+            phone = args.get("phone") or args.get("telefono") or ""
+
             res = call_supabase_rpc("calcular_cotizacion", {
-                "hotel_name_query": args.get("hotel_name_query", "Senator"),
-                "check_in": args.get("check_in", "2026-10-15"),
-                "check_out": args.get("check_out", "2026-10-18"),
-                "adults": int(args.get("adults", 2)),
-                "children": int(args.get("children", 0))
+                "hotel_name_query": hotel_q,
+                "check_in": cin,
+                "check_out": cout,
+                "adults": ad,
+                "children": ch
             })
-            return {"status": "success", "cotizacion": res[:4] if isinstance(res, list) else res}
+
+            # Materialize C03 Offer & C04 Quote Orchestration
+            ctx_c03 = {
+                "hotel_interest": hotel_q,
+                "destination": hotel_q,
+                "check_in": cin,
+                "check_out": cout,
+                "adults": ad,
+                "children": ch,
+                "customer_name": cust_name,
+                "phone": phone
+            }
+            c03_res = C03OfferCompositionManager.compose_offer(ctx_c03, correlation_id=cid)
+            c04_quote = None
+            if c03_res.get("status") == "SUCCESS" and c03_res.get("offer"):
+                c04_res = C04QuoteOrchestrationManager.orchestrate_quote(
+                    offer=c03_res["offer"],
+                    ctx=ctx_c03,
+                    correlation_id=cid,
+                    idempotency_key=args.get("idempotency_key")
+                )
+                if c04_res.get("status") == "SUCCESS":
+                    c04_quote = c04_res.get("quotation")
+
+            return {
+                "status": "success",
+                "cotizacion": res[:4] if isinstance(res, list) else res,
+                "c03_offer": c03_res.get("offer"),
+                "c04_quotation": c04_quote,
+                "quotation_id": c04_quote.get("quotation_id") if c04_quote else None
+            }
 
         elif tool_name == "consultar_disponibilidad_proveedor":
             slug = args.get("hotel_slug", "senator-puerto-plata")
@@ -1405,6 +1998,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                         final_text = data2["choices"][0]["message"]["content"].strip()
                         final_text, contained, reason = enforce_failure_containment(final_text, tools_executed, cid, contacto=contacto)
                         has_ack = any(t.get("tool") == "registrar_abono_financiero" and t.get("result", {}).get("status") == "ACK" for t in tools_executed)
+                        c03_off = next((t.get("result", {}).get("c03_offer") for t in tools_executed if t.get("tool") == "calcular_cotizacion"), None)
+                        c04_quo = next((t.get("result", {}).get("c04_quotation") for t in tools_executed if t.get("tool") == "calcular_cotizacion"), None)
+                        qid = next((t.get("result", {}).get("quotation_id") for t in tools_executed if t.get("tool") == "calcular_cotizacion"), None)
 
                         return {
                             "ok": True,
@@ -1412,6 +2008,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                             "model": model,
                             "c01_context": ctx,
                             "c02_qualification": qual,
+                            "c03_offer": c03_off,
+                            "c04_quotation": c04_quo,
+                            "quotation_id": qid or (c04_quo.get("quotation_id") if c04_quo else None),
                             "c07_containment": {
                                 "enforced": contained,
                                 "downstream_ack": has_ack,
@@ -1426,6 +2025,15 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                 content = choice.get("content", "").strip()
                 if content:
                     final_text, contained, reason = enforce_failure_containment(content, [], cid, contacto=contacto)
+                    c03_off = None
+                    c04_quo = None
+                    if qual["qualification_state"] == "QUALIFIED" and ctx.get("check_in") and ctx.get("check_out"):
+                        c03_res = C03OfferCompositionManager.compose_offer(ctx, correlation_id=cid)
+                        c03_off = c03_res.get("offer")
+                        if c03_off:
+                            c04_res = C04QuoteOrchestrationManager.orchestrate_quote(c03_off, ctx, correlation_id=cid)
+                            c04_quo = c04_res.get("quotation")
+
                     return {
                         "ok": True,
                         "respuesta": final_text,
@@ -1434,6 +2042,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
                         "customer_context": ctx,
                         "c02_qualification": qual,
                         "commercial_qualification": qual,
+                        "c03_offer": c03_off,
+                        "c04_quotation": c04_quo,
+                        "quotation_id": c04_quo.get("quotation_id") if c04_quo else None,
                         "c07_containment": {
                             "enforced": contained,
                             "downstream_ack": False,
@@ -1471,6 +2082,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
             "customer_context": ctx,
             "c02_qualification": qual,
             "commercial_qualification": qual,
+            "c03_offer": None,
+            "c04_quotation": None,
+            "quotation_id": None,
             "c07_containment": {"enforced": contained, "reason": reason, "downstream_ack": pay_res.get("status") == "ACK"},
             "tool_calls_executed": tools_executed,
             "source": "tool_fallback",
@@ -1508,16 +2122,44 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
             "customer_context": ctx,
             "c02_qualification": qual,
             "commercial_qualification": qual,
+            "c03_offer": None,
+            "c04_quotation": None,
+            "quotation_id": None,
             "c07_containment": {"enforced": False, "downstream_ack": False, "reason": "NO_PAYMENT_CLAIM", "correlation_id": cid},
             "tool_calls_executed": [],
             "source": "intake_template",
             "correlation_id": cid
         }
 
-    # Standard Qualified fallback response
+    # Standard Qualified fallback response with full C03/C04 materialization
+    calc_args = {
+        "hotel_name_query": ctx.get("hotel_interest") or ctx.get("destination") or "Senator",
+        "check_in": ctx.get("check_in", "2026-10-15"),
+        "check_out": ctx.get("check_out", "2026-10-18"),
+        "adults": int(ctx.get("adults") or 2),
+        "children": int(ctx.get("children") or 0),
+        "customer_name": ctx.get("customer_name", "Viajero"),
+        "phone": ctx.get("phone", "")
+    }
+    calc_res = execute_tool("calcular_cotizacion", calc_args, correlation_id=cid)
+    tools_executed.append({"tool": "calcular_cotizacion", "args": calc_args, "result": calc_res})
+    
+    quote_obj = calc_res.get("c04_quotation")
+    offer_obj = calc_res.get("c03_offer")
+    qid = calc_res.get("quotation_id") or (quote_obj.get("quotation_id") if quote_obj else "COT-PENDIENTE")
+    
+    rooms_text = []
+    if calc_res.get("cotizacion") and isinstance(calc_res["cotizacion"], list):
+        for r in calc_res["cotizacion"][:3]:
+            rooms_text.append(f"• **{r.get('room_name')}**: ${r.get('price_per_night')} USD/noche (Total: **${r.get('subtotal')} USD**)")
+    
+    rooms_str = "\n".join(rooms_text) if rooms_text else "Tarifas sujetas a confirmación"
     resp_text = (
-        f"¡Hola {ctx.get('customer_name', 'Viajero')}! Hemos recibido tu solicitud para {ctx.get('destination') or 'República Dominicana'}. "
-        f"Tu solicitud está calificada como {qual.get('classification')}. Estamos verificando cupos y tarifas para {ctx.get('adults')} adultos del {ctx.get('check_in')} al {ctx.get('check_out')}."
+        f"¡Hola {ctx.get('customer_name', 'Viajero')}! Hemos preparado tu cotización formal para **{calc_args['hotel_name_query']}**.\n\n"
+        f"📋 **Cotización:** `{qid}` (Válida por 72 horas)\n"
+        f"📅 **Fechas:** {calc_args['check_in']} al {calc_args['check_out']} ({ctx.get('adults', 2)} adultos)\n\n"
+        f"🏨 **Opciones disponibles:**\n{rooms_str}\n\n"
+        f"¿Deseas que reservemos alguna de estas opciones o te gustaría consultar otro hotel?"
     )
     return {
         "ok": True,
@@ -1527,6 +2169,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
         "customer_context": ctx,
         "c02_qualification": qual,
         "commercial_qualification": qual,
+        "c03_offer": offer_obj,
+        "c04_quotation": quote_obj,
+        "quotation_id": qid,
         "c07_containment": {"enforced": False, "downstream_ack": False, "reason": "NO_PAYMENT_CLAIM", "correlation_id": cid},
         "tool_calls_executed": tools_executed,
         "source": "qualified_template",
@@ -1544,10 +2189,97 @@ def health():
         "gateway": "hermes-commercial-full-suite",
         "c01_customer_context": "materialized",
         "c02_qualification": "materialized",
+        "c03_offer_composition": "materialized",
+        "c04_quote_orchestration": "materialized",
         "c07_handoff": "materialized",
         "port": 8645,
-        "version": "2.5.0-f01"
+        "version": "2.6.0-f02"
     }
+
+@app.get("/c04/quotation/{quotation_id}")
+async def c04_get_quotation_endpoint(quotation_id: str):
+    res = C04QuoteOrchestrationManager.get_quotation(quotation_id)
+    if not res:
+        return JSONResponse(status_code=404, content={"status": "error", "message": f"Quotation '{quotation_id}' not found"})
+    return {"status": "success", "quotation": res}
+
+@app.post("/c04/transition")
+async def c04_transition_endpoint(req: QuoteTransitionRequest, request: Request, response: Response):
+    cid = req.correlation_id or request.headers.get("X-Correlation-ID") or C07CommercialHandoffManager.generate_correlation_id()
+    response.headers["X-Correlation-ID"] = cid
+    res = C04QuoteOrchestrationManager.transition_quote_state(
+        quotation_id=req.quotation_id,
+        new_state=req.new_state,
+        actor=req.actor or "advisor",
+        reason=req.reason or "Governed commercial transition",
+        correlation_id=cid
+    )
+    if not res.get("ok"):
+        return JSONResponse(status_code=400, content=res)
+    return res
+
+@app.post("/c04/compose-and-quote")
+async def c04_compose_and_quote_endpoint(req: QuoteComposeRequest, request: Request, response: Response):
+    cid = req.correlation_id or request.headers.get("X-Correlation-ID") or C07CommercialHandoffManager.generate_correlation_id()
+    response.headers["X-Correlation-ID"] = cid
+    
+    # 1. Resolve context if message provided, else construct from fields
+    if req.message:
+        ctx = C01CustomerContextManager.resolve_context(
+            message=req.message,
+            contacto=req.contacto or "Viajero",
+            telefono=req.telefono or "",
+            correlation_id=cid
+        )
+    else:
+        ctx = {
+            "customer_name": req.contacto or "Viajero",
+            "phone": req.telefono or "",
+            "hotel_interest": req.hotel_name_query,
+            "destination": req.hotel_name_query,
+            "check_in": req.check_in,
+            "check_out": req.check_out,
+            "adults": req.adults or 2,
+            "children": req.children or 0
+        }
+    
+    # 2. Evaluate qualification
+    qual = C02CommercialQualificationManager.evaluate_qualification(ctx, correlation_id=cid)
+    
+    # 3. C03 Offer Composition
+    c03_res = C03OfferCompositionManager.compose_offer(ctx, correlation_id=cid)
+    if c03_res.get("status") != "SUCCESS":
+        return {
+            "ok": False,
+            "status": c03_res.get("status"),
+            "missing_constraints": c03_res.get("missing_constraints", []),
+            "c01_context": ctx,
+            "c02_qualification": qual,
+            "c03_offer": None,
+            "c04_quotation": None,
+            "correlation_id": cid
+        }
+    
+    # 4. C04 Quote Orchestration
+    c04_res = C04QuoteOrchestrationManager.orchestrate_quote(
+        offer=c03_res["offer"],
+        ctx=ctx,
+        correlation_id=cid,
+        idempotency_key=req.idempotency_key
+    )
+    
+    return {
+        "ok": True,
+        "status": "SUCCESS",
+        "action": c04_res.get("action"),
+        "c01_context": ctx,
+        "c02_qualification": qual,
+        "c03_offer": c03_res.get("offer"),
+        "c04_quotation": c04_res.get("quotation"),
+        "quotation_id": c04_res.get("quotation", {}).get("quotation_id"),
+        "correlation_id": cid
+    }
+
 
 @app.post("/chat")
 @app.post("/api/chat")
