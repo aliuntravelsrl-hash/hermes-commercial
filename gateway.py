@@ -898,11 +898,34 @@ class C03OfferCompositionManager:
         query_hotel = constraints.get("hotel_query")
         hotel = cls.resolve_hotel_master(query_hotel)
         if not hotel:
-            hotel = {
-                "id": "305e0092-495e-40ce-aa46-8abc6ab7d457",
-                "name": "Senator Puerto Plata Spa Resort",
-                "slug": "senator-puerto-plata",
-                "zone": "Puerto Plata"
+            logger.warning(f"[C03_EVIDENCE] [cid={cid}] Hotel '{query_hotel}' not found in hotels_master")
+            try:
+                log_body = {
+                    "nivel": "WARN",
+                    "origen": "hermes-commercial-c03",
+                    "evento": "C03_HOTEL_NOT_FOUND",
+                    "mensaje": f"cid={cid} hotel '{query_hotel}' not found in authoritative catalog",
+                    "payload": {
+                        "correlation_id": cid,
+                        "query_hotel": query_hotel,
+                        "constraints": constraints
+                    }
+                }
+                req_log = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/logs_operativos",
+                    data=json.dumps(log_body).encode(),
+                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                    method="POST"
+                )
+                urllib.request.urlopen(req_log, timeout=5)
+            except Exception:
+                pass
+
+            return {
+                "status": "HOTEL_NOT_FOUND",
+                "message": f"Hotel or destination '{query_hotel}' not found in authoritative catalog",
+                "offer": None,
+                "correlation_id": cid
             }
 
         # Authoritative RPC calcular_cotizacion
@@ -922,33 +945,75 @@ class C03OfferCompositionManager:
         except Exception as e:
             logger.error(f"[cid={cid}] Error in RPC calcular_cotizacion: {e}")
 
-        now_dt = datetime.utcnow()
-        now_iso = now_dt.isoformat() + "Z"
-        exp_iso = (now_dt + timedelta(hours=72)).isoformat() + "Z"
-
         options = []
         for r in rpc_rooms:
-            options.append({
-                "room_name": r.get("room_name"),
-                "room_type": r.get("room_type"),
-                "nights": r.get("nights", constraints["nights"]),
-                "price_per_night": float(r.get("price_per_night") or 0.0),
-                "subtotal": float(r.get("subtotal") or 0.0),
-                "currency": r.get("currency", "USD"),
-                "occupancy_info": r.get("occupancy_info", f"{constraints['adults']} adultos"),
-                "savings_tip": r.get("savings_tip", "")
-            })
+            if isinstance(r, dict) and r.get("room_name") and float(r.get("subtotal") or 0.0) > 0:
+                options.append({
+                    "room_name": r.get("room_name"),
+                    "room_type": r.get("room_type"),
+                    "nights": r.get("nights", constraints["nights"]),
+                    "price_per_night": float(r.get("price_per_night") or 0.0),
+                    "subtotal": float(r.get("subtotal") or 0.0),
+                    "currency": r.get("currency", "USD"),
+                    "occupancy_info": r.get("occupancy_info", f"{constraints['adults']} adultos"),
+                    "savings_tip": r.get("savings_tip", "")
+                })
+
+        if not options:
+            logger.warning(f"[C03_EVIDENCE] [cid={cid}] Authoritative pricing unavailable from RPC calcular_cotizacion for hotel '{hotel['name']}'")
+            try:
+                log_body = {
+                    "nivel": "WARN",
+                    "origen": "hermes-commercial-c03",
+                    "evento": "C03_PRICING_UNAVAILABLE",
+                    "mensaje": f"cid={cid} no pricing options for hotel '{hotel['name']}'",
+                    "payload": {
+                        "correlation_id": cid,
+                        "hotel_id": hotel["id"],
+                        "hotel_name": hotel["name"],
+                        "constraints": constraints
+                    }
+                }
+                req_log = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/logs_operativos",
+                    data=json.dumps(log_body).encode(),
+                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                    method="POST"
+                )
+                urllib.request.urlopen(req_log, timeout=5)
+            except Exception:
+                pass
+
+            return {
+                "status": "PRICING_UNAVAILABLE",
+                "message": f"No authoritative pricing options available from RPC calcular_cotizacion for hotel '{hotel['name']}' with specified constraints",
+                "offer": None,
+                "correlation_id": cid
+            }
+
+        now_dt = datetime.utcnow()
+        now_iso = now_dt.isoformat() + "Z"
+
+        validity_window = {
+            "status": "POLICY_UNVERIFIED",
+            "policy_authority": "UNKNOWN / UNVERIFIED",
+            "duration_hours": None,
+            "issued_at": now_iso,
+            "expires_at": None,
+            "note": "No authorized commercial quotation validity policy exists in SSOT"
+        }
 
         offer_id = f"OFF-{cid[-6:].upper()}-{uuid.uuid4().hex[:4].upper()}"
         provenance = {
             "pricing_source": "rpc:calcular_cotizacion",
             "catalog_source": "public.hotels_master",
             "rate_tables": ["public.rates", "public.seasons", "public.hotel_rooms"],
+            "validity_policy": "UNKNOWN / UNVERIFIED",
             "governing_policy": "SSOT_IA_DECIDE_DB_MANDA",
             "composed_at": now_iso
         }
 
-        best_subtotal = min([o["subtotal"] for o in options]) if options else 0.0
+        best_subtotal = min([o["subtotal"] for o in options])
 
         offer = {
             "offer_id": offer_id,
@@ -959,11 +1024,7 @@ class C03OfferCompositionManager:
             "constraints_applied": constraints,
             "options": options,
             "best_subtotal": best_subtotal,
-            "validity_window": {
-                "issued_at": now_iso,
-                "expires_at": exp_iso,
-                "duration_hours": 72
-            },
+            "validity_window": validity_window,
             "provenance": provenance,
             "correlation_id": cid
         }
@@ -1017,9 +1078,9 @@ class C04QuoteOrchestrationManager:
         "pending": ["presented", "rejected", "expired"],
         "presented": ["sent", "accepted", "rejected", "expired"],
         "sent": ["accepted", "rejected", "expired"],
-        "accepted": ["rejected"],
-        "rejected": [],
-        "expired": []
+        "accepted": [],  # Terminal state in F02 quote orchestration
+        "rejected": [],  # Terminal state
+        "expired": []   # Terminal state
     }
     _idempotency_cache: Dict[str, dict] = {}
 
@@ -1141,7 +1202,7 @@ class C04QuoteOrchestrationManager:
             ]
         }
 
-        exp_iso = offer.get("validity_window", {}).get("expires_at") or (now_dt + timedelta(hours=72)).isoformat() + "Z"
+        exp_iso = offer.get("validity_window", {}).get("expires_at") # None: unverified commercial policy
 
         quote_payload = {
             "quotation_id": quotation_code,
@@ -1739,16 +1800,27 @@ def execute_tool(tool_name: str, args: dict, correlation_id: Optional[str] = Non
                 "phone": phone
             }
             c03_res = C03OfferCompositionManager.compose_offer(ctx_c03, correlation_id=cid)
+            if c03_res.get("status") != "SUCCESS":
+                return {
+                    "status": "error",
+                    "code": c03_res.get("status"),
+                    "message": c03_res.get("message", "Oferta comercial no disponible"),
+                    "missing_constraints": c03_res.get("missing_constraints"),
+                    "cotizacion": [],
+                    "c03_offer": None,
+                    "c04_quotation": None,
+                    "quotation_id": None
+                }
+
             c04_quote = None
-            if c03_res.get("status") == "SUCCESS" and c03_res.get("offer"):
-                c04_res = C04QuoteOrchestrationManager.orchestrate_quote(
-                    offer=c03_res["offer"],
-                    ctx=ctx_c03,
-                    correlation_id=cid,
-                    idempotency_key=args.get("idempotency_key")
-                )
-                if c04_res.get("status") == "SUCCESS":
-                    c04_quote = c04_res.get("quotation")
+            c04_res = C04QuoteOrchestrationManager.orchestrate_quote(
+                offer=c03_res["offer"],
+                ctx=ctx_c03,
+                correlation_id=cid,
+                idempotency_key=args.get("idempotency_key")
+            )
+            if c04_res.get("status") == "SUCCESS":
+                c04_quote = c04_res.get("quotation")
 
             return {
                 "status": "success",
@@ -2132,8 +2204,9 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
         }
 
     # Standard Qualified fallback response with full C03/C04 materialization
+    calc_hotel = ctx.get("hotel_interest") or ctx.get("destination") or "Punta Cana"
     calc_args = {
-        "hotel_name_query": ctx.get("hotel_interest") or ctx.get("destination") or "Senator",
+        "hotel_name_query": calc_hotel,
         "check_in": ctx.get("check_in", "2026-10-15"),
         "check_out": ctx.get("check_out", "2026-10-18"),
         "adults": int(ctx.get("adults") or 2),
@@ -2146,8 +2219,31 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
     
     quote_obj = calc_res.get("c04_quotation")
     offer_obj = calc_res.get("c03_offer")
-    qid = calc_res.get("quotation_id") or (quote_obj.get("quotation_id") if quote_obj else "COT-PENDIENTE")
+    qid = calc_res.get("quotation_id") or (quote_obj.get("quotation_id") if quote_obj else None)
     
+    if not quote_obj or not qid:
+        resp_text = (
+            f"¡Hola {ctx.get('customer_name', 'Viajero')}! Hemos consultado las opciones para **{calc_hotel}** del {calc_args['check_in']} al {calc_args['check_out']}, "
+            f"pero actualmente no hay disponibilidad o tarifas vigentes confirmadas para estos parámetros ({calc_res.get('code', 'NO_DISPONIBLE')}). "
+            f"¿Te gustaría que revisemos fechas alternativas u otros resorts en República Dominicana?"
+        )
+        return {
+            "ok": True,
+            "respuesta": resp_text,
+            "model": "c02_qualified_unpriced_fallback",
+            "c01_context": ctx,
+            "customer_context": ctx,
+            "c02_qualification": qual,
+            "commercial_qualification": qual,
+            "c03_offer": None,
+            "c04_quotation": None,
+            "quotation_id": None,
+            "c07_containment": {"enforced": False, "downstream_ack": False, "reason": "NO_PAYMENT_CLAIM", "correlation_id": cid},
+            "tool_calls_executed": tools_executed,
+            "source": "qualified_template_unpriced",
+            "correlation_id": cid
+        }
+
     rooms_text = []
     if calc_res.get("cotizacion") and isinstance(calc_res["cotizacion"], list):
         for r in calc_res["cotizacion"][:3]:
@@ -2156,7 +2252,7 @@ def run_hermes_agent_workflow(mensaje_usuario: str, contacto: str = "Viajero", t
     rooms_str = "\n".join(rooms_text) if rooms_text else "Tarifas sujetas a confirmación"
     resp_text = (
         f"¡Hola {ctx.get('customer_name', 'Viajero')}! Hemos preparado tu cotización formal para **{calc_args['hotel_name_query']}**.\n\n"
-        f"📋 **Cotización:** `{qid}` (Válida por 72 horas)\n"
+        f"📋 **Cotización:** `{qid}`\n"
         f"📅 **Fechas:** {calc_args['check_in']} al {calc_args['check_out']} ({ctx.get('adults', 2)} adultos)\n\n"
         f"🏨 **Opciones disponibles:**\n{rooms_str}\n\n"
         f"¿Deseas que reservemos alguna de estas opciones o te gustaría consultar otro hotel?"

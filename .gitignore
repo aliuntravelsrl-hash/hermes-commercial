@@ -1,3 +1,5 @@
 .hermes/
 .specify/scripts/
 .env
+__pycache__/
+*.bak*
